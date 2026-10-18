@@ -2,8 +2,26 @@ import axios from 'axios';
 import {
   Plant, PlantPhase, PlantEvent, CreatePlantRequest, CreateEventRequest, PhasePreset,
   GrowArea, AreaEvent, CreateAreaRequest, CreateAreaEventRequest,
+  AreaSensorBinding, AreaSensorReading,
+  AreaPhaseSettings,
+  AreaActuatorBinding, AreaActuatorRole, ActionLog, ControllerStatus,
+  AreaHistory,
 } from '../types/models';
 import { Strain, CreateStrainData, UpdateStrainData } from '../types/strain';
+
+export interface HAStatus {
+  status: 'connected' | 'connecting' | 'disconnected';
+  configured: boolean;
+  entities: number;
+}
+
+export interface HAEntity {
+  entity_id: string;
+  state: string;
+  attributes: Record<string, unknown>;
+  last_changed?: string;
+  last_updated?: string;
+}
 
 const api = axios.create({
   timeout: 10000,
@@ -29,6 +47,16 @@ export const getPhotoUrl = (filename: string) =>
   `${getBasePath()}/api/uploads/files/${filename}`;
 
 export const apiService = {
+  getHAStatus: async (): Promise<HAStatus> => {
+    const response = await api.get('/ha/status');
+    return response.data;
+  },
+
+  getHAEntities: async (domain?: string): Promise<HAEntity[]> => {
+    const response = await api.get(`/ha/entities${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`);
+    return response.data;
+  },
+
   // Plants
   getPlants: async (): Promise<Plant[]> => {
     const response = await api.get('/plants');
@@ -158,6 +186,86 @@ export const apiService = {
     return response.data;
   },
 
+  getAreaSensorBindings: async (areaId: number): Promise<AreaSensorBinding[]> => {
+    const response = await api.get(`/areas/${areaId}/sensors`);
+    return response.data;
+  },
+
+  setAreaSensorBinding: async (
+    areaId: number,
+    role: AreaSensorBinding["role"],
+    entityId: string,
+  ): Promise<AreaSensorBinding> => {
+    const response = await api.put(`/areas/${areaId}/sensors/${role}`, { entityId });
+    return response.data;
+  },
+
+  deleteAreaSensorBinding: async (areaId: number, role: AreaSensorBinding["role"]): Promise<void> => {
+    await api.delete(`/areas/${areaId}/sensors/${role}`);
+  },
+
+  getAreaSensorReadings: async (areaId: number): Promise<AreaSensorReading[]> => {
+    const response = await api.get(`/areas/${areaId}/readings`);
+    return response.data;
+  },
+
+  getAreaActuatorBindings: async (areaId: number): Promise<AreaActuatorBinding[]> => {
+    const response = await api.get(`/areas/${areaId}/actuators`);
+    return response.data;
+  },
+
+  setAreaActuatorBinding: async (areaId: number, role: AreaActuatorRole, data: Partial<AreaActuatorBinding> & { entityId: string }) => {
+    const response = await api.put(`/areas/${areaId}/actuators/${role}`, data);
+    return response.data as AreaActuatorBinding;
+  },
+
+  deleteAreaActuatorBinding: async (areaId: number, role: AreaActuatorRole): Promise<void> => {
+    await api.delete(`/areas/${areaId}/actuators/${role}`);
+  },
+
+  setAreaActuatorManual: async (areaId: number, role: AreaActuatorRole, on: boolean, expiryMinutes?: number) => {
+    const response = await api.post(`/areas/${areaId}/actuators/${role}/manual`, { on, expiryMinutes });
+    return response.data as { binding: AreaActuatorBinding; actionLog: ActionLog };
+  },
+
+  setAreaActuatorOverride: async (areaId: number, enabled: boolean, expiryMinutes?: number, role?: AreaActuatorRole) => {
+    const response = await api.put(`/areas/${areaId}/actuators/${role ? `${role}/` : ""}override`, { enabled, expiryMinutes });
+    return response.data as AreaActuatorBinding[];
+  },
+
+  getAreaActionLog: async (areaId: number): Promise<ActionLog[]> => {
+    const response = await api.get(`/areas/${areaId}/action-log`);
+    return response.data;
+  },
+
+  getAreaHistory: async (
+    areaId: number,
+    params: { roles?: string; from: string; to: string; buckets: number },
+  ): Promise<AreaHistory> => {
+    const query = new URLSearchParams({
+      roles: params.roles || "temperature,humidity,vpd",
+      from: params.from,
+      to: params.to,
+      buckets: String(params.buckets),
+    });
+    const response = await api.get(`/areas/${areaId}/history?${query}`);
+    return response.data;
+  },
+
+  getAreaPhaseSettings: async (areaId: number): Promise<AreaPhaseSettings[]> => {
+    const response = await api.get(`/areas/${areaId}/settings`);
+    return response.data;
+  },
+
+  updateAreaPhaseSettings: async (areaId: number, phaseName: string, data: Partial<AreaPhaseSettings>): Promise<AreaPhaseSettings> => {
+    const response = await api.put(`/areas/${areaId}/settings/${encodeURIComponent(phaseName)}`, data);
+    return response.data;
+  },
+
+  deleteAreaPhaseSettings: async (areaId: number, phaseName: string): Promise<void> => {
+    await api.delete(`/areas/${areaId}/settings/${encodeURIComponent(phaseName)}`);
+  },
+
   createArea: async (data: CreateAreaRequest): Promise<GrowArea> => {
     const response = await api.post('/areas', data);
     return response.data;
@@ -165,6 +273,11 @@ export const apiService = {
 
   updateArea: async (id: number, data: Partial<GrowArea>): Promise<GrowArea> => {
     const response = await api.put(`/areas/${id}`, data);
+    return response.data;
+  },
+
+  getControllerStatus: async (): Promise<ControllerStatus> => {
+    const response = await api.get('/controller/status');
     return response.data;
   },
 

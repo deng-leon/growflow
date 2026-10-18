@@ -16,6 +16,9 @@ const areaIncludes = {
     orderBy: { timestamp: 'desc' as const },
     take: 50,
   },
+  phaseSettings: {
+    orderBy: { phaseName: 'asc' as const },
+  },
 };
 
 const serializeEvent = (e: any) => ({
@@ -67,6 +70,59 @@ router.get("/:id", async (req: Request, res: Response) => {
       where: { id },
       include: areaIncludes,
     });
+
+    router.get("/:id/settings", async (req: Request, res: Response) => {
+      try {
+        const areaId = parseInt(req.params.id);
+        const area = await prisma.growArea.findUnique({ where: { id: areaId }, select: { id: true } });
+        if (!area) return res.status(404).json({ error: "Area not found" });
+        res.json(await prisma.areaPhaseSettings.findMany({ where: { areaId }, orderBy: { phaseName: "asc" } }));
+      } catch {
+        res.status(500).json({ error: "Failed to fetch area settings" });
+      }
+    });
+
+    router.put("/:id/settings/:phaseName", async (req: Request, res: Response) => {
+      try {
+        const areaId = parseInt(req.params.id);
+        const phaseName = req.params.phaseName;
+        if (!phaseName) return res.status(400).json({ error: "phaseName is required" });
+        const area = await prisma.growArea.findUnique({ where: { id: areaId }, select: { id: true } });
+        if (!area) return res.status(404).json({ error: "Area not found" });
+
+        const allowed = [
+          "tempMin", "tempMax", "humidityMin", "humidityMax", "vpdMin", "vpdMax",
+          "lightOnTime", "lightOffTime", "ventilationOnMinutes", "ventilationOffMinutes", "fanSchedule",
+        ] as const;
+        const data: Record<string, unknown> = {};
+        for (const field of allowed) {
+          if (req.body[field] !== undefined) data[field] = req.body[field] === "" ? null : req.body[field];
+        }
+        const setting = await prisma.areaPhaseSettings.upsert({
+          where: { areaId_phaseName: { areaId, phaseName } },
+          create: { areaId, phaseName, ...data },
+          update: data,
+        });
+        res.json(setting);
+      } catch (error) {
+        console.error("Failed to save area settings:", error);
+        res.status(400).json({ error: "Failed to save area settings" });
+      }
+    });
+
+    router.delete("/:id/settings/:phaseName", async (req: Request, res: Response) => {
+      try {
+        const areaId = parseInt(req.params.id);
+        const phaseName = req.params.phaseName;
+        await prisma.areaPhaseSettings.delete({
+          where: { areaId_phaseName: { areaId, phaseName } },
+        });
+        res.status(204).send();
+      } catch (error: any) {
+        if (error.code === "P2025") return res.status(404).json({ error: "Area settings not found" });
+        res.status(500).json({ error: "Failed to delete area settings" });
+      }
+    });
     if (!area) return res.status(404).json({ error: "Area not found" });
     res.json(serializeArea(area));
   } catch (error) {
@@ -76,8 +132,11 @@ router.get("/:id", async (req: Request, res: Response) => {
 
 router.post("/", async (req: Request, res: Response) => {
   try {
-    const { name, type, description, lightSchedule, isActive } = req.body;
+    const { name, type, description, lightSchedule, leafOffsetC, isActive, controlPhaseName } = req.body;
     if (!name) return res.status(400).json({ error: "Area name is required" });
+    if (controlPhaseName !== undefined && controlPhaseName !== null && typeof controlPhaseName !== "string") {
+      return res.status(400).json({ error: "controlPhaseName must be a string or null" });
+    }
 
     const area = await prisma.growArea.create({
       data: {
@@ -85,7 +144,9 @@ router.post("/", async (req: Request, res: Response) => {
         type: type || "tent",
         description: description || null,
         lightSchedule: lightSchedule || null,
+        leafOffsetC: leafOffsetC ?? -2,
         isActive: isActive ?? true,
+        controlPhaseName: controlPhaseName ?? null,
       },
       include: areaIncludes,
     });
@@ -102,14 +163,28 @@ router.post("/", async (req: Request, res: Response) => {
 router.put("/:id", async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
-    const { name, type, description, lightSchedule, isActive } = req.body;
+    const { name, type, description, lightSchedule, leafOffsetC, isActive, roomClimateEntityId, controlPhaseName } = req.body;
 
     const data: any = {};
     if (name !== undefined) data.name = name;
     if (type !== undefined) data.type = type;
     if (description !== undefined) data.description = description;
     if (lightSchedule !== undefined) data.lightSchedule = lightSchedule;
+    if (leafOffsetC !== undefined && Number.isFinite(Number(leafOffsetC))) data.leafOffsetC = Number(leafOffsetC);
     if (isActive !== undefined) data.isActive = isActive;
+    if (controlPhaseName !== undefined) {
+      if (controlPhaseName !== null && typeof controlPhaseName !== "string") {
+        return res.status(400).json({ error: "controlPhaseName must be a string or null" });
+      }
+      data.controlPhaseName = controlPhaseName;
+    }
+    if (roomClimateEntityId !== undefined) {
+      if (roomClimateEntityId !== null && (typeof roomClimateEntityId !== "string"
+        || !/^climate\.[^.]+$/.test(roomClimateEntityId.trim()))) {
+        return res.status(400).json({ error: "roomClimateEntityId must be a climate.* entity" });
+      }
+      data.roomClimateEntityId = roomClimateEntityId === null ? null : roomClimateEntityId.trim();
+    }
 
     const area = await prisma.growArea.update({
       where: { id },

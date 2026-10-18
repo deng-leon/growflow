@@ -124,7 +124,10 @@ export interface GrowArea {
   type: AreaType;
   description?: string;
   isActive: boolean;
+  controlPhaseName?: string | null;
   lightSchedule?: string;
+  leafOffsetC: number;
+  roomClimateEntityId?: string | null;
   plants?: Plant[];
   plantCount?: number;
   events?: AreaEvent[];
@@ -132,11 +135,115 @@ export interface GrowArea {
   updatedAt: string;
 }
 
+export type AreaSensorRole = "temperature" | "humidity" | "vpd" | "roomTemperature" | "roomHumidity";
+
+export interface AreaSensorBinding {
+  id: number;
+  areaId: number;
+  role: AreaSensorRole;
+  entityId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AreaSensorReading {
+  role: AreaSensorRole;
+  entityId: string;
+  value: number | null;
+  unit: string | null;
+  stale: boolean;
+  updatedAt: string | null;
+}
+
+export type AreaActuatorRole = "light" | "humidifier" | "dehumidifier" | "ventilation" | "fan";
+export type ActuatorAlgorithm = "hysteresis" | "pid";
+export type ActuatorFailSafe = "hold" | "off" | "on";
+
+export interface AreaActuatorBinding {
+  id: number;
+  areaId: number;
+  role: AreaActuatorRole;
+  entityId: string;
+  speedEntityId: string | null;
+  maxSpeedPercent: number;
+  algorithm: ActuatorAlgorithm;
+  failSafe: ActuatorFailSafe;
+  minOnSeconds: number;
+  minOffSeconds: number;
+  kp: number;
+  ki: number;
+  kd: number;
+  windowSeconds: number;
+  manualUntil: string | null;
+  manual: boolean;
+  state?: string;
+  speedPercent?: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ActionLog {
+  id: number;
+  areaId: number;
+  role: AreaActuatorRole;
+  entityId: string;
+  action: string;
+  reason: string;
+  source: "manual" | "controller";
+  createdAt: string;
+}
+
+export interface AreaHistoryReading {
+  avg: number;
+  min: number;
+  max: number;
+}
+
+export interface AreaHistoryBucket {
+  start: string;
+  end: string;
+  readings: Partial<Record<AreaSensorRole, AreaHistoryReading | null>>;
+}
+
+export interface AreaHistory {
+  areaId: number;
+  from: string;
+  to: string;
+  buckets: AreaHistoryBucket[];
+}
+
+export interface AreaPhaseSettings {
+  id?: number;
+  areaId?: number;
+  phaseName: string;
+  tempMin?: number | null;
+  tempMax?: number | null;
+  humidityMin?: number | null;
+  humidityMax?: number | null;
+  vpdMin?: number | null;
+  vpdMax?: number | null;
+  lightOnTime?: string | null;
+  lightOffTime?: string | null;
+  ventilationOnMinutes?: number | null;
+  ventilationOffMinutes?: number | null;
+  fanSchedule?: string | null;
+}
+
 export interface CreateAreaRequest {
   name: string;
   type?: AreaType;
   description?: string;
   lightSchedule?: string;
+  controlPhaseName?: string | null;
+}
+
+export interface ControllerStatus {
+  enabled: boolean;
+  running: boolean;
+  intervalMs: number;
+  lastTickAt: string | null;
+  lastTickAreas: number;
+  lastTickError?: string;
 }
 
 export interface CreateAreaEventRequest {

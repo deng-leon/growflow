@@ -43,13 +43,145 @@ model GrowArea {
   type          String                @default("tent") // tent | room | outdoor | closet | custom
   description   String?
   isActive      Boolean               @default(true)
+  controlPhaseName String?
   lightSchedule String? // "18/6", "12/12", "20/4", "24/0", etc.
+  leafOffsetC   Float                 @default(-2)
+  roomClimateEntityId String?
   plants        Plant[]
   events        AreaEvent[]
+  sensorBindings AreaSensorBinding[]
+  actuatorBindings AreaActuatorBinding[]
+  actionLogs    ActionLog[]
+  sensorReadings SensorReading[]
+  phaseSettings AreaPhaseSettings[]
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
 
   @@map("grow_areas")
+}
+
+model AreaPhaseSettings {
+  id                     Int      @id @default(autoincrement())
+  areaId                 Int
+  area                   GrowArea @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  phaseName              String
+  tempMin                Float?
+  tempMax                Float?
+  humidityMin            Float?
+  humidityMax            Float?
+  vpdMin                Float?
+  vpdMax                Float?
+  lightOnTime            String?
+  lightOffTime           String?
+  ventilationOnMinutes   Int?
+  ventilationOffMinutes  Int?
+  fanSchedule            String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@unique([areaId, phaseName])
+  @@index([areaId])
+  @@map("area_phase_settings")
+}
+
+enum AreaSensorRole {
+  temperature
+  humidity
+  vpd
+  roomTemperature
+  roomHumidity
+}
+
+model AreaSensorBinding {
+  id        Int            @id @default(autoincrement())
+  areaId    Int
+  area      GrowArea       @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  role      AreaSensorRole
+  entityId  String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([areaId, role])
+  @@index([areaId])
+  @@map("area_sensor_bindings")
+}
+
+model SensorReading {
+  id        Int             @id @default(autoincrement())
+  areaId    Int
+  area      GrowArea        @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  role      AreaSensorRole
+  value     Float
+  at        DateTime
+
+  @@index([areaId, role, at])
+  @@index([at])
+  @@map("sensor_readings")
+}
+
+enum AreaActuatorRole {
+  light
+  humidifier
+  dehumidifier
+  ventilation
+  fan
+}
+
+enum ActuatorAlgorithm {
+  hysteresis
+  pid
+}
+
+enum ActuatorFailSafe {
+  hold
+  off
+  on
+}
+
+model AreaActuatorBinding {
+  id            Int               @id @default(autoincrement())
+  areaId        Int
+  area          GrowArea          @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  role          AreaActuatorRole
+  entityId      String
+  speedEntityId String?
+  maxSpeedPercent Int              @default(100)
+  algorithm     ActuatorAlgorithm @default(hysteresis)
+  failSafe      ActuatorFailSafe  @default(off)
+  minOnSeconds  Int               @default(60)
+  minOffSeconds Int               @default(60)
+  kp            Float             @default(0.08)
+  ki            Float             @default(0.01)
+  kd            Float             @default(0.02)
+  windowSeconds Int               @default(60)
+  manualUntil   DateTime?
+  manual        Boolean           @default(false)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@unique([areaId, role])
+  @@index([areaId])
+  @@map("area_actuator_bindings")
+}
+
+enum ActionSource {
+  manual
+  controller
+}
+
+model ActionLog {
+  id        Int               @id @default(autoincrement())
+  areaId    Int
+  area      GrowArea          @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  role      AreaActuatorRole
+  entityId  String
+  action    String
+  reason    String
+  source    ActionSource
+  createdAt DateTime          @default(now())
+
+  @@index([areaId, createdAt])
+  @@map("action_logs")
 }
 
 model AreaEvent {

@@ -8,6 +8,21 @@ export interface PhaseEnvTargets {
   lightOnHours: number | null;
 }
 
+export interface AreaPhaseSettings {
+  phaseName?: string;
+  tempMin?: number | null;
+  tempMax?: number | null;
+  humidityMin?: number | null;
+  humidityMax?: number | null;
+  vpdMin?: number | null;
+  vpdMax?: number | null;
+  lightOnTime?: string | null;
+  lightOffTime?: string | null;
+  ventilationOnMinutes?: number | null;
+  ventilationOffMinutes?: number | null;
+  fanSchedule?: string | null;
+}
+
 export interface PhaseTemplate extends PhaseEnvTargets {
   name: string;
   sortOrder: number;

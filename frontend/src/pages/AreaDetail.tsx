@@ -9,7 +9,6 @@ import {
   IconButton,
   Fab,
   Grid,
-  Divider,
   List,
   ListItemButton,
   ListItemText,
@@ -24,6 +23,10 @@ import {
   Alert,
   CircularProgress,
   Tooltip,
+  Select,
+  FormControl,
+  InputLabel,
+  TextField,
 } from "@mui/material";
 import {
   Add,
@@ -34,6 +37,7 @@ import {
   SwapHoriz,
   FlashOn,
   WarningAmber,
+  AccessTime,
 } from "@mui/icons-material";
 import {
   useArea,
@@ -43,22 +47,113 @@ import {
   useUpdateAreaEvent,
   useDeleteAreaEvent,
   useFlipArea,
+  useAreaPhaseSettings,
+  useAreaSensorReadings,
+  useAreaHistory,
+  useAreaActionLog,
 } from "../hooks/useAreas";
 import CreateAreaDialog, { AREA_TYPES, LIGHT_SCHEDULE_PRESETS } from "../components/CreateAreaDialog";
-import EnvironmentEventDialog, { AREA_EVENT_META } from "../components/EnvironmentEventDialog";
-import { AreaEvent, CreateAreaEventRequest, CreateAreaRequest, Plant } from "../types/models";
+import EnvironmentEventDialog from "../components/EnvironmentEventDialog";
+import AreaSensorBindings from "../components/AreaSensorBindings";
+import AreaActuatorBindings from "../components/AreaActuatorBindings";
+import AreaPhaseSettingsEditor from "../components/AreaPhaseSettingsEditor";
+import { AreaEvent, CreateAreaEventRequest, CreateAreaRequest, Plant, AreaHistory, ActionLog } from "../types/models";
 import { createPlantTimeline } from "../utils/PlantTimeline";
 import { calculateVPD } from "../utils/vpd";
 import { evaluatePlantHappiness } from "../utils/plantEnvironment";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ReferenceArea,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip as ChartTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 const formatTimestamp = (ts: string) => {
   const d = new Date(ts);
   return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 };
 
-const formatDateHeader = (ts: string) => {
-  const d = new Date(ts);
-  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+type RangeKey = "1h" | "6h" | "24h" | "7d" | "30d" | "grow" | "custom";
+const RANGE_OPTIONS: { value: RangeKey; label: string; hours?: number }[] = [
+  { value: "1h", label: "1 hour", hours: 1 },
+  { value: "6h", label: "6 hours", hours: 6 },
+  { value: "24h", label: "24 hours", hours: 24 },
+  { value: "7d", label: "7 days", hours: 24 * 7 },
+  { value: "30d", label: "30 days", hours: 24 * 30 },
+  { value: "grow", label: "Whole grow" },
+  { value: "custom", label: "Custom range" },
+];
+
+const bucketCountFor = (range: RangeKey) => range === "1h" ? 30 : range === "6h" ? 48 : range === "24h" ? 72 : 120;
+
+const HistoryChart: React.FC<{
+  history?: AreaHistory;
+  role: "temperature" | "humidity" | "vpd";
+  label: string;
+  unit: string;
+  color: string;
+  targetMin?: number | null;
+  targetMax?: number | null;
+  actionLogs: ActionLog[];
+  events: AreaEvent[];
+  onEventClick?: (event: AreaEvent) => void;
+}> = ({ history, role, label, unit, color, targetMin, targetMax, actionLogs, events, onEventClick }) => {
+  const data = (history?.buckets || []).map((bucket) => ({
+    time: new Date(bucket.start).getTime(),
+    label: bucket.start,
+    avg: bucket.readings[role]?.avg ?? null,
+    min: bucket.readings[role]?.min ?? null,
+    max: bucket.readings[role]?.max ?? null,
+  }));
+  const hasData = data.some((point) => point.avg !== null);
+  const markers = [
+    ...actionLogs.map((log) => ({ time: new Date(log.createdAt).getTime(), text: `${log.role} ${log.action}`, color: log.action === "on" ? "#4caf50" : "#f44336", event: undefined })),
+    ...events.map((event) => ({ time: new Date(event.timestamp).getTime(), text: event.title, color: "#ff9800", event })),
+  ];
+
+  return (
+    <Box sx={{ mb: 2 }}>
+      <Typography variant="subtitle2" sx={{ mb: 0.5 }}>{label} ({unit})</Typography>
+      {!hasData ? (
+        <Typography variant="body2" color="textSecondary" sx={{ py: 3, textAlign: "center" }}>
+          No {label.toLowerCase()} history in this range.
+        </Typography>
+      ) : (
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+            <XAxis dataKey="time" type="number" domain={["dataMin", "dataMax"]} tickFormatter={(value) => new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />
+            <YAxis tickFormatter={(value) => `${value}${unit}`} width={52} />
+            <ChartTooltip labelFormatter={(value) => formatTimestamp(new Date(value).toISOString())} formatter={(value: number) => [`${value.toFixed(2)}${unit}`, label]} />
+            <Legend />
+            {targetMin != null && targetMax != null && (
+              <ReferenceArea y1={targetMin} y2={targetMax} fill="#4caf50" fillOpacity={0.12} />
+            )}
+            {markers.map((marker, index) => (
+              <ReferenceLine
+                key={`${marker.time}-${index}`}
+                x={marker.time}
+                stroke={marker.color}
+                strokeDasharray="4 4"
+                label={{ value: marker.text, angle: -90, position: "insideTop", fontSize: 10 }}
+                onClick={() => marker.event && onEventClick?.(marker.event)}
+                style={marker.event ? { cursor: "pointer" } : undefined}
+              />
+            ))}
+            <Line type="monotone" dataKey="avg" name="Average" stroke={color} dot={false} connectNulls />
+            <Line type="monotone" dataKey="min" name="Min" stroke={color} strokeOpacity={0.35} dot={false} connectNulls />
+            <Line type="monotone" dataKey="max" name="Max" stroke={color} strokeOpacity={0.35} dot={false} connectNulls />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+    </Box>
+  );
 };
 
 const AreaDetail: React.FC = () => {
@@ -73,6 +168,8 @@ const AreaDetail: React.FC = () => {
   const updateEvent = useUpdateAreaEvent();
   const deleteEvent = useDeleteAreaEvent();
   const flipArea = useFlipArea();
+  const phaseSettings = useAreaPhaseSettings(areaId);
+  const sensorReadings = useAreaSensorReadings(areaId);
 
   const [eventDialog, setEventDialog] = useState<{ open: boolean; event: AreaEvent | null }>({
     open: false,
@@ -85,24 +182,34 @@ const AreaDetail: React.FC = () => {
     newSchedule: "12/12",
   });
   const [transitionPlants, setTransitionPlants] = useState(true);
+  const [range, setRange] = useState<RangeKey>("24h");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
   const events: AreaEvent[] = area?.events || [];
   const plants: Plant[] = area?.plants || [];
+  const historyRange = useMemo(() => {
+    const now = new Date();
+    const selected = RANGE_OPTIONS.find((option) => option.value === range);
+    const to = range === "custom" && customTo ? new Date(customTo) : now;
+    const from = range === "custom" && customFrom
+      ? new Date(customFrom)
+      : range === "grow"
+        ? new Date(area?.createdAt || now.getTime())
+        : new Date(to.getTime() - (selected?.hours || 24) * 60 * 60 * 1000);
+    return { from, to, buckets: bucketCountFor(range) };
+  }, [area?.createdAt, customFrom, customTo, range]);
+  const history = useAreaHistory(areaId, {
+    from: historyRange.from.toISOString(),
+    to: historyRange.to.toISOString(),
+    buckets: historyRange.buckets,
+  });
+  const actionLog = useAreaActionLog(areaId, historyRange.from.toISOString(), historyRange.to.toISOString());
 
   const latestEnv = useMemo(
     () => events.find((e) => e.type === "environment"),
     [events]
   );
-
-  const eventsByDay = useMemo(() => {
-    const groups = new Map<string, AreaEvent[]>();
-    for (const event of events) {
-      const key = formatDateHeader(event.timestamp);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(event);
-    }
-    return Array.from(groups.entries());
-  }, [events]);
 
   // Area-level VPD: raw sensor reading. Per-plant judgement happens below in
   // the plants list via evaluatePlantHappiness.
@@ -162,6 +269,23 @@ const AreaDetail: React.FC = () => {
 
   const isVegSchedule = area.lightSchedule && parseInt(area.lightSchedule.split("/")[0] || "0") >= 16;
   const photoperiodPlants = plants.filter((p) => !p.strain || p.strain.type === "photoperiod");
+  const currentPhase = plants[0] ? createPlantTimeline(plants[0].phases || [], plants[0].events || []).currentPhase : null;
+  const areaSetting = currentPhase ? phaseSettings.data?.find((item) => item.phaseName === currentPhase.name) : undefined;
+  const liveReading = (role: "temperature" | "humidity" | "vpd") =>
+    sensorReadings.data?.find((reading) => reading.role === role)?.value ?? null;
+  const target = (key: "temp" | "humidity" | "vpd") => {
+    const min = areaSetting?.[`${key}Min` as keyof typeof areaSetting] ?? currentPhase?.[`${key}Min` as keyof typeof currentPhase];
+    const max = areaSetting?.[`${key}Max` as keyof typeof areaSetting] ?? currentPhase?.[`${key}Max` as keyof typeof currentPhase];
+    return min != null || max != null ? `${min ?? "—"}–${max ?? "—"}` : null;
+  };
+  const targetBounds = (key: "temp" | "humidity" | "vpd") => ({
+    targetMin: (areaSetting?.[`${key}Min` as keyof typeof areaSetting] ?? currentPhase?.[`${key}Min` as keyof typeof currentPhase]) as number | null | undefined,
+    targetMax: (areaSetting?.[`${key}Max` as keyof typeof areaSetting] ?? currentPhase?.[`${key}Max` as keyof typeof currentPhase]) as number | null | undefined,
+  });
+  const chartEvents = events.filter((event) => {
+    const timestamp = new Date(event.timestamp).getTime();
+    return timestamp >= historyRange.from.getTime() && timestamp <= historyRange.to.getTime();
+  });
 
   return (
     <Box>
@@ -227,6 +351,8 @@ const AreaDetail: React.FC = () => {
       <Grid container spacing={3}>
         {/* Sidebar */}
         <Grid item xs={12} md={4}>
+          <AreaSensorBindings areaId={area.id} />
+          <AreaActuatorBindings areaId={area.id} />
           <Paper sx={{ p: 2.5, mb: 2 }}>
             <Typography
               variant="overline"
@@ -243,7 +369,8 @@ const AreaDetail: React.FC = () => {
                       <Typography variant="caption" color="textSecondary">
                         Temperature
                       </Typography>
-                      <Typography variant="h5">{latestEnv.data.temperature_c}°C</Typography>
+                      <Typography variant="h5">{liveReading("temperature") ?? latestEnv.data.temperature_c}°C</Typography>
+                      {target("temp") && <Typography variant="caption" color="textSecondary">Target: {target("temp")}°C</Typography>}
                     </Grid>
                   )}
                   {latestEnv.data.humidity_percent !== undefined && (
@@ -251,7 +378,8 @@ const AreaDetail: React.FC = () => {
                       <Typography variant="caption" color="textSecondary">
                         Humidity
                       </Typography>
-                      <Typography variant="h5">{latestEnv.data.humidity_percent}%</Typography>
+                      <Typography variant="h5">{liveReading("humidity") ?? latestEnv.data.humidity_percent}%</Typography>
+                      {target("humidity") && <Typography variant="caption" color="textSecondary">Target: {target("humidity")}%</Typography>}
                     </Grid>
                   )}
                   {vpdValue !== null && (
@@ -259,7 +387,8 @@ const AreaDetail: React.FC = () => {
                       <Typography variant="caption" color="textSecondary">
                         VPD
                       </Typography>
-                      <Typography variant="h5">{vpdValue} kPa</Typography>
+                      <Typography variant="h5">{liveReading("vpd") ?? vpdValue} kPa</Typography>
+                      {target("vpd") && <Typography variant="caption" color="textSecondary">Target: {target("vpd")} kPa</Typography>}
                     </Grid>
                   )}
                   {latestEnv.data.co2_ppm !== undefined && (
@@ -278,6 +407,37 @@ const AreaDetail: React.FC = () => {
             ) : (
               <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
                 No environment data yet. Log your first reading →
+              </Typography>
+            )}
+          </Paper>
+
+          <Paper sx={{ p: 2.5, mb: 2 }}>
+            <Typography
+              variant="overline"
+              color="textSecondary"
+              sx={{ display: "block", mb: 1 }}
+            >
+              Action Log
+            </Typography>
+            {actionLog.isLoading ? (
+              <CircularProgress size={22} />
+            ) : actionLog.error ? (
+              <Alert severity="error">Failed to load controller actions.</Alert>
+            ) : actionLog.data?.length ? (
+              <List dense disablePadding>
+                {actionLog.data.slice(0, 8).map((log) => (
+                  <ListItemButton key={log.id} disableGutters sx={{ borderRadius: 1 }}>
+                    <AccessTime fontSize="small" sx={{ mr: 1, color: "text.secondary" }} />
+                    <ListItemText
+                      primary={`${log.role}: ${log.action}`}
+                      secondary={`${formatTimestamp(log.createdAt)} · ${log.source}${log.reason ? ` · ${log.reason}` : ""}`}
+                    />
+                  </ListItemButton>
+                ))}
+              </List>
+            ) : (
+              <Typography variant="body2" color="textSecondary">
+                No controller or manual actions recorded yet.
               </Typography>
             )}
           </Paper>
@@ -329,11 +489,12 @@ const AreaDetail: React.FC = () => {
           </Paper>
         </Grid>
 
-        {/* Main content: Environment Log */}
+        {/* Main content: sensor history */}
         <Grid item xs={12} md={8}>
+          <AreaPhaseSettingsEditor areaId={area.id} plants={plants} />
           <Paper sx={{ p: 2.5 }}>
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2 }}>
-              <Typography variant="h6">Environment Log</Typography>
+              <Typography variant="h6">Environment History</Typography>
               <Button
                 variant="outlined"
                 size="small"
@@ -343,91 +504,55 @@ const AreaDetail: React.FC = () => {
                 Log Event
               </Button>
             </Box>
-
-            {events.length === 0 ? (
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", mb: 2 }}>
+              <FormControl size="small" sx={{ minWidth: 150 }}>
+                <InputLabel id="history-range-label">Timescale</InputLabel>
+                <Select
+                  native
+                  labelId="history-range-label"
+                  label="Timescale"
+                  value={range}
+                  onChange={(event) => setRange(event.target.value as RangeKey)}
+                >
+                  {RANGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </Select>
+              </FormControl>
+              {range === "custom" && (
+                <>
+                  <TextField
+                    size="small"
+                    type="datetime-local"
+                    label="From"
+                    value={customFrom}
+                    onChange={(event) => setCustomFrom(event.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                  <TextField
+                    size="small"
+                    type="datetime-local"
+                    label="To"
+                    value={customTo}
+                    onChange={(event) => setCustomTo(event.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                </>
+              )}
+            </Box>
+            {history.isLoading ? (
+              <Box display="flex" justifyContent="center" py={6}><CircularProgress /></Box>
+            ) : history.error ? (
+              <Alert severity="error">Failed to load sensor history.</Alert>
+            ) : !history.data?.buckets?.some((bucket) => Object.values(bucket.readings).some(Boolean)) ? (
               <Box sx={{ textAlign: "center", py: 6 }}>
-                <Typography variant="body1" color="textSecondary" sx={{ mb: 1 }}>
-                  No events logged yet
-                </Typography>
-                <Typography variant="body2" color="textSecondary">
-                  Log light schedule changes, environment readings, or equipment changes
-                </Typography>
+                <Typography variant="body1" color="textSecondary">No sensor history in this range.</Typography>
+                <Typography variant="body2" color="textSecondary">Bind a temperature or humidity sensor and allow it to collect readings.</Typography>
               </Box>
             ) : (
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {eventsByDay.map(([day, dayEvents]) => (
-                  <Box key={day}>
-                    <Typography
-                      variant="caption"
-                      color="textSecondary"
-                      sx={{ textTransform: "uppercase", fontWeight: 600 }}
-                    >
-                      {day}
-                    </Typography>
-                    <Divider sx={{ mb: 1, mt: 0.5 }} />
-                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                      {dayEvents.map((event) => {
-                        const meta = AREA_EVENT_META[event.type];
-                        return (
-                          <Box
-                            key={event.id}
-                            onClick={() => setEventDialog({ open: true, event })}
-                            sx={{
-                              display: "flex",
-                              alignItems: "flex-start",
-                              gap: 1.5,
-                              p: 1.5,
-                              borderRadius: 1.5,
-                              cursor: "pointer",
-                              border: "1px solid",
-                              borderColor: "divider",
-                              transition: "border-color 120ms ease, background-color 120ms ease",
-                              "&:hover": {
-                                borderColor: "primary.main",
-                                bgcolor: "rgba(76,175,80,0.04)",
-                              },
-                            }}
-                          >
-                            <Box
-                              sx={{
-                                width: 32,
-                                height: 32,
-                                borderRadius: 1,
-                                bgcolor: `${meta.color}22`,
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontSize: "1.1rem",
-                                flexShrink: 0,
-                              }}
-                            >
-                              {meta.icon}
-                            </Box>
-                            <Box sx={{ flex: 1, minWidth: 0 }}>
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                                <Typography variant="subtitle2">{event.title}</Typography>
-                                <Typography variant="caption" color="textSecondary">
-                                  {new Date(event.timestamp).toLocaleTimeString(undefined, {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </Typography>
-                                {event.source !== "manual" && (
-                                  <Chip label={event.source} size="small" variant="outlined" />
-                                )}
-                              </Box>
-                              {event.notes && (
-                                <Typography variant="body2" color="textSecondary" sx={{ mt: 0.5 }}>
-                                  {event.notes}
-                                </Typography>
-                              )}
-                            </Box>
-                          </Box>
-                        );
-                      })}
-                    </Box>
-                  </Box>
-                ))}
+              <Box>
+                <HistoryChart history={history.data} role="temperature" label="Temperature" unit="°C" color="#f44336" {...targetBounds("temp")} actionLogs={actionLog.data || []} events={chartEvents} onEventClick={(event) => setEventDialog({ open: true, event })} />
+                <HistoryChart history={history.data} role="humidity" label="Humidity" unit="%" color="#2196f3" {...targetBounds("humidity")} actionLogs={actionLog.data || []} events={chartEvents} onEventClick={(event) => setEventDialog({ open: true, event })} />
+                <HistoryChart history={history.data} role="vpd" label="VPD" unit=" kPa" color="#ab47bc" {...targetBounds("vpd")} actionLogs={actionLog.data || []} events={chartEvents} onEventClick={(event) => setEventDialog({ open: true, event })} />
+                {(history.isFetching || actionLog.isFetching) && <Typography variant="caption" color="textSecondary">Refreshing history…</Typography>}
               </Box>
             )}
           </Paper>

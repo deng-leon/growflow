@@ -13,6 +13,12 @@ import { strainRoutes } from './controllers/strainController';
 import { presetRoutes } from './controllers/presetController';
 import { uploadRoutes } from './controllers/uploadController';
 import { areaRoutes } from './controllers/areaController';
+import { haRoutes } from './controllers/haController';
+import { areaSensorRoutes } from './controllers/areaSensorController';
+import { areaActuatorRoutes } from './controllers/areaActuatorController';
+import { controller } from './services/controller';
+import { haClient } from './services/haClient';
+import { sensorRecorder } from './services/sensorRecorder';
 
 const app = express();
 
@@ -91,6 +97,10 @@ app.use('/api/strains', strainRoutes);
 app.use('/api/presets', presetRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/areas', areaRoutes);
+app.use('/api/areas', areaSensorRoutes);
+app.use('/api/areas', areaActuatorRoutes);
+app.use('/api/ha', haRoutes);
+app.get('/api/controller/status', (_req, res) => res.json(controller.getStatus()));
 
 app.get('/api/health', async (req, res) => {
   try {
@@ -151,6 +161,8 @@ const start = async () => {
   try {
     await initializeDatabase();
     await runStartupTasks();
+    controller.start();
+    if (CONFIG.RECORDER.ENABLED) sensorRecorder.start();
 
     app.listen(CONFIG.API.PORT, '0.0.0.0', () => {
       console.log(`GrowFlow server running on port ${CONFIG.API.PORT}`);
@@ -158,6 +170,9 @@ const start = async () => {
 
     process.on('SIGTERM', async () => {
       console.log('Shutting down gracefully...');
+      controller.stop();
+      sensorRecorder.stop();
+      haClient.stop();
       await prisma.$disconnect();
       process.exit(0);
     });

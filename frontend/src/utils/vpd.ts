@@ -1,13 +1,44 @@
-// Vapor Pressure Deficit (VPD) — pure formula. Phase-aware judgement of "is
-// this VPD ok for this plant?" lives in plantEnvironment.ts; this file just
-// computes the number.
-//
-// Uses leaf temp ≈ air temp - 2°C (typical assumption for cannabis).
-// Formula: SVP(T) = 0.6108 * exp(17.27 * T / (T + 237.3)) [kPa]
-// VPD = SVP(leafTemp) - SVP(airTemp) * RH/100
-export const calculateVPD = (tempC: number, humidityPercent: number, leafOffsetC = 2): number => {
-  const svp = (t: number) => 0.6108 * Math.exp((17.27 * t) / (t + 237.3));
-  const leafTemp = tempC - leafOffsetC;
-  const vpd = svp(leafTemp) - svp(tempC) * (humidityPercent / 100);
+/** Saturation vapour pressure in kPa (Tetens/Murray approximation). */
+export const saturationVapourPressure = (temperatureC: number): number =>
+  0.6108 * Math.exp((17.27 * temperatureC) / (temperatureC + 237.3));
+
+/** Relative humidity for a target VPD at a given air temperature. */
+export const relativeHumidityForVPD = (
+  temperatureC: number,
+  vpd: number,
+  leafOffsetC = -2,
+): number => {
+  const svpAir = saturationVapourPressure(temperatureC);
+  const svpLeaf = saturationVapourPressure(temperatureC + leafOffsetC);
+  return ((svpLeaf - vpd) / svpAir) * 100;
+};
+
+/** VPD in kPa. leafOffsetC is leaf temperature minus air temperature. */
+export const calculateVPD = (
+  temperatureC: number,
+  humidityPercent: number,
+  leafOffsetC = -2,
+): number => {
+  const vpd =
+    saturationVapourPressure(temperatureC + leafOffsetC) -
+    saturationVapourPressure(temperatureC) * (humidityPercent / 100);
   return Math.round(vpd * 100) / 100;
+};
+
+export type VpdZone = "under-transpiration" | "propagation" | "vegetative" | "flowering" | "danger";
+
+export const classifyVPD = (vpd: number): VpdZone => {
+  if (vpd < 0.4) return "under-transpiration";
+  if (vpd < 0.8) return "propagation";
+  if (vpd < 1.2) return "vegetative";
+  if (vpd < 1.6) return "flowering";
+  return "danger";
+};
+
+export const VPD_ZONE_COLORS: Record<VpdZone, string> = {
+  "under-transpiration": "#4f81bd",
+  propagation: "#78b159",
+  vegetative: "#a8c957",
+  flowering: "#f2c14e",
+  danger: "#d95d39",
 };

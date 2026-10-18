@@ -1,4 +1,4 @@
-import { PHASE_PRESETS, PhaseTemplate, PhaseEnvTargets, pickEnvTargets } from '../types/phase';
+import { PHASE_PRESETS, PhaseTemplate, PhaseEnvTargets, AreaPhaseSettings, pickEnvTargets } from '../types/phase';
 import { prisma } from '../database';
 
 export interface PlantPhaseCreateInput extends PhaseEnvTargets {
@@ -17,6 +17,29 @@ export interface PlantPhaseDb {
   startDate: Date | null;
   isActive: boolean;
 }
+
+export const resolveAreaPhaseSettings = (
+  phaseTargets: Partial<PhaseEnvTargets>,
+  areaSettings?: Partial<AreaPhaseSettings> | null,
+): PhaseEnvTargets => ({
+  vpdMin: areaSettings?.vpdMin ?? phaseTargets.vpdMin ?? null,
+  vpdMax: areaSettings?.vpdMax ?? phaseTargets.vpdMax ?? null,
+  tempMin: areaSettings?.tempMin ?? phaseTargets.tempMin ?? null,
+  tempMax: areaSettings?.tempMax ?? phaseTargets.tempMax ?? null,
+  humidityMin: areaSettings?.humidityMin ?? phaseTargets.humidityMin ?? null,
+  humidityMax: areaSettings?.humidityMax ?? phaseTargets.humidityMax ?? null,
+  lightOnHours: phaseTargets.lightOnHours ?? null,
+});
+
+export const resolveAreaPhaseSchedule = (
+  areaSettings?: Partial<AreaPhaseSettings> | null,
+): Pick<AreaPhaseSettings, 'lightOnTime' | 'lightOffTime' | 'ventilationOnMinutes' | 'ventilationOffMinutes' | 'fanSchedule'> => ({
+  lightOnTime: areaSettings?.lightOnTime ?? null,
+  lightOffTime: areaSettings?.lightOffTime ?? null,
+  ventilationOnMinutes: areaSettings?.ventilationOnMinutes ?? null,
+  ventilationOffMinutes: areaSettings?.ventilationOffMinutes ?? null,
+  fanSchedule: areaSettings?.fanSchedule ?? null,
+});
 
 export const getCurrentPhase = (phases: PlantPhaseDb[]): PlantPhaseDb | null => {
   const started = phases
