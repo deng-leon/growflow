@@ -2,12 +2,11 @@ name: Release
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io/grow-flow
+  REGISTRY: ghcr.io/${{ github.repository_owner }}
   IMAGE_NAME: growflow
 
 jobs:
@@ -52,16 +51,8 @@ jobs:
         uses: docker/bake-action@v5
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
+          SOURCE_URL: https://github.com/${{ github.repository }}
         with:
           push: true
           files: |
             ./docker-bake.hcl
-
-      - name: Trigger addon repo update
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: peter-evans/repository-dispatch@v2
-        with:
-          token: ${{ secrets.ADDON_REPO_TOKEN }}
-          repository: grow-flow/growflow-addon
-          event-type: version-update
-          client-payload: '{"version": "${{ steps.version.outputs.VERSION }}"}'

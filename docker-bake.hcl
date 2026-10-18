@@ -1,5 +1,9 @@
 variable "REGISTRY" {
-  default = "ghcr.io/grow-flow"
+  default = "ghcr.io/deng-leon"
+}
+
+variable "SOURCE_URL" {
+  default = "https://github.com/deng-leon/growflow"
 }
 
 variable "IMAGE_NAME" {
@@ -22,7 +26,7 @@ target "growflow" {
     equal(VERSION, "latest") ? "${REGISTRY}/${IMAGE_NAME}:latest" : "",
   ]
   labels = {
-    "org.opencontainers.image.source" = "https://github.com/grow-flow/growflow"
+    "org.opencontainers.image.source" = "${SOURCE_URL}"
     "org.opencontainers.image.version" = "${VERSION}"
   }
   cache-from = ["type=registry,ref=${REGISTRY}/${IMAGE_NAME}:buildcache"]

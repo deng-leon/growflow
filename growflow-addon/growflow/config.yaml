@@ -1,0 +1,27 @@
+name: "GrowFlow Plant Tracker"
+description: "Plant lifecycle tracking with Home Assistant sensor and actuator control"
+version: "v1.2.0"
+slug: "growflow"
+init: false
+arch:
+  - amd64
+  - aarch64
+startup: application
+homeassistant_api: true
+ports:
+  8080/tcp: null
+ports_description:
+  8080/tcp: "Web interface (Not required for Ingress)"
+options:
+  log_level: "info"
+  controller_enabled: false
+schema:
+  log_level: "list(trace|debug|info|warn|error|fatal)"
+  controller_enabled: "bool"
+ingress: true
+ingress_port: 8080
+panel_icon: "mdi:sprout"
+panel_title: "GrowFlow"
+url: "https://github.com/deng-leon/growflow"
+map:
+  - data
